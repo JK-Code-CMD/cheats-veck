@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Veck.io ESP
+// @name         Veck.io Menu & ESP
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  ESP für Veck.io mit Canvas-Overlay
+// @version      1.4
+// @description  Menü und ESP Basis für Veck.io
 // @author       Du
 // @match        *://*.veck.io/*
 // @run-at       document-idle
@@ -12,7 +12,113 @@
 (function() {
     'use strict';
 
-    // 1. Warten auf die Unity WebGL Umgebung
+    // --- 1. UI MENÜ ERSTELLEN ---
+    function createMenu() {
+        const menu = document.createElement('div');
+        menu.id = 'veck-menu';
+        menu.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 220px;
+            background: rgba(20, 20, 20, 0.9);
+            border: 1px solid #00FF00;
+            border-radius: 8px;
+            color: white;
+            font-family: Arial, sans-serif;
+            z-index: 10000;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            user-select: none;
+        `;
+
+        const header = document.createElement('div');
+        header.innerText = 'Veck.io Cheats';
+        header.style.cssText = `
+            background: #00FF00;
+            color: black;
+            padding: 8px;
+            font-weight: bold;
+            text-align: center;
+            border-radius: 8px 8px 0 0;
+            cursor: move;
+        `;
+        menu.appendChild(header);
+
+        const content = document.createElement('div');
+        content.style.padding = '10px';
+
+        // ESP Toggle
+        const espBtn = document.createElement('button');
+        espBtn.innerText = 'ESP: AN';
+        espBtn.style.cssText = `
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #00FF00;
+            color: black;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        `;
+        let espEnabled = true;
+        espBtn.onclick = () => {
+            espEnabled = !espEnabled;
+            espBtn.innerText = `ESP: ${espEnabled ? 'AN' : 'AUS'}`;
+            espBtn.style.background = espEnabled ? '#00FF00' : '#555';
+            espBtn.style.color = espEnabled ? 'black' : 'white';
+        };
+        content.appendChild(espBtn);
+
+        // Waffen Toggle (Platzhalter)
+        const weaponBtn = document.createElement('button');
+        weaponBtn.innerText = 'Waffen: AUS';
+        weaponBtn.style.cssText = `
+            width: 100%;
+            padding: 8px;
+            background: #555;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        `;
+        let weaponsEnabled = false;
+        weaponBtn.onclick = () => {
+            weaponsEnabled = !weaponsEnabled;
+            weaponBtn.innerText = `Waffen: ${weaponsEnabled ? 'AN' : 'AUS'}`;
+            weaponBtn.style.background = weaponsEnabled ? '#ff4444' : '#555';
+        };
+        content.appendChild(weaponBtn);
+
+        menu.appendChild(content);
+        document.body.appendChild(menu);
+
+        // Drag & Drop Funktionalität für das Menü
+        let isDragging = false;
+        let offsetX, offsetY;
+
+        header.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            offsetX = e.clientX - menu.getBoundingClientRect().left;
+            offsetY = e.clientY - menu.getBoundingClientRect().top;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                menu.style.left = `${e.clientX - offsetX}px`;
+                menu.style.top = `${e.clientY - offsetY}px`;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        return { getEspState: () => espEnabled, getWeaponState: () => weaponsEnabled };
+    }
+
+    // --- 2. WARTEN AUF UNITY & START ---
     function waitForGlobal(varName, interval = 50, timeout = 15000) {
         return new Promise((resolve, reject) => {
             const start = Date.now();
@@ -30,14 +136,16 @@
     }
 
     (async () => {
+        // Menü erstellen
+        const ui = createMenu();
+
         try {
             await waitForGlobal('UnityWebModkit');
-            console.log('[ESP] UnityWebModkit gefunden. Initialisiere...');
+            console.log('[Veck] UnityWebModkit gefunden. Initialisiere...');
 
-            // 2. Plugin erstellen
             const ctx = UnityWebModkit.Runtime.createPlugin({
                 name: 'VeckESP',
-                version: '1.3',
+                version: '1.4',
                 referencedAssemblies: [
                     'ACTk.Runtime.dll', 'GameAssembly.dll', 'System.Runtime.InteropServices.dll',
                     'mscorlib.dll', 'PhotonRealtime.dll', 'PhotonUnityNetworking.dll',
@@ -50,15 +158,9 @@
             });
             window.ctx = ctx;
 
-            // 3. Overlay-Canvas für das Zeichnen erstellen
+            // Overlay-Canvas für ESP
             const canvas = document.createElement('canvas');
-            canvas.style.position = 'fixed';
-            canvas.style.top = '0';
-            canvas.style.left = '0';
-            canvas.style.width = '100vw';
-            canvas.style.height = '100vh';
-            canvas.style.pointerEvents = 'none'; // Klicks durchlassen
-            canvas.style.zIndex = '9999';
+            canvas.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9999;';
             document.body.appendChild(canvas);
             const drawCtx = canvas.getContext('2d');
 
@@ -69,60 +171,67 @@
             window.addEventListener('resize', resizeCanvas);
             resizeCanvas();
 
-            const esp = { enabled: true, players: [] };
-
-            // 4. Die ESP-Schleife (Jeden Frame ausführen)
+            // --- 3. ESP SCHLEIFE ---
             function espLoop() {
-                // Bildschirm leeren
                 drawCtx.clearRect(0, 0, canvas.width, canvas.height);
 
-                if (esp.enabled && window.ctx) {
+                if (ui.getEspState() && window.ctx) {
                     try {
                         const Camera = UnityWebModkit.Runtime.getType('UnityEngine.Camera');
                         const cam = Camera.main;
                         
                         if (cam) {
-                            // Beispiel: Hier holst du dir die echten Spieler aus dem Spiel
-                            // esp.players = ... (muss noch an das Spiel angepasst werden)
+                            // VERSUCH: Spieler zu finden (Wir suchen nach Objekten, die "Player" heißen)
+                            // Dies ist ein Schuss ins Blaue, da wir die genaue Klasse in Veck.io nicht kennen.
+                            const GameObject = UnityWebModkit.Runtime.getType('UnityEngine.GameObject');
+                            const Object = UnityWebModkit.Runtime.getType('UnityEngine.Object');
                             
-                            for (const player of esp.players) {
-                                if (!player || !player.transform) continue;
-                                
-                                const screenPos = cam.WorldToScreenPoint(player.transform.position);
-                                
-                                if (screenPos.z > 0) {
-                                    const sx = screenPos.x;
-                                    const sy = canvas.height - screenPos.y; // Y invertieren
+                            // Finde alle GameObjects in der Szene (WebGL kann hier etwas laggen)
+                            // Wenn das zu stark laggt, müssen wir eine andere Methode finden.
+                            const allObjects = Object.FindObjectsOfType(GameObject);
+                            
+                            for (let i = 0; i < allObjects.length; i++) {
+                                const obj = allObjects[i];
+                                // Wir filtern nach Objekten, die "Player" im Namen haben (veck.io Charaktere)
+                                if (obj && obj.name && obj.name.toLowerCase().includes('player')) {
+                                    const transform = obj.transform;
+                                    if (transform) {
+                                        const screenPos = cam.WorldToScreenPoint(transform.position);
+                                        
+                                        // Nur zeichnen, wenn der Spieler vor der Kamera ist
+                                        if (screenPos.z > 0) {
+                                            const sx = screenPos.x;
+                                            const sy = canvas.height - screenPos.y;
 
-                                    // Zeichne ein grünes Kästchen
-                                    drawCtx.strokeStyle = '#00FF00';
-                                    drawCtx.lineWidth = 2;
-                                    drawCtx.strokeRect(sx - 20, sy - 20, 40, 40);
-                                    
-                                    // Zeichne den Namen (optional)
-                                    drawCtx.fillStyle = '#00FF00';
-                                    drawCtx.font = '14px Arial';
-                                    drawCtx.fillText('Spieler', sx - 20, sy - 25);
+                                            // Grünes Kästchen zeichnen
+                                            drawCtx.strokeStyle = '#00FF00';
+                                            drawCtx.lineWidth = 2;
+                                            drawCtx.strokeRect(sx - 20, sy - 40, 40, 80); // Etwas höher für Charaktere
+                                            
+                                            // Name zeichnen
+                                            drawCtx.fillStyle = '#00FF00';
+                                            drawCtx.font = '12px Arial';
+                                            drawCtx.fillText(obj.name, sx - 20, sy - 45);
+                                        }
+                                    }
                                 }
                             }
                         }
                     } catch (e) {
-                        // Fehler nur ausgeben, wenn wirklich was kaputt ist, um die Konsole nicht zu spammen
-                        if (!esp.hasErrored) {
-                            console.error('[ESP] Fehler in der Schleife:', e);
-                            esp.hasErrored = true;
-                        }
+                        // Fehler ignorieren, um die Konsole nicht zu spammen
                     }
                 }
+                
+                // Waffen-Logik würde hier hin (wenn ui.getWeaponState() true ist)
+
                 requestAnimationFrame(espLoop);
             }
 
-            // Start der Schleife
             requestAnimationFrame(espLoop);
-            console.log('[ESP] Erfolgreich gestartet!');
+            console.log('[Veck] Erfolgreich gestartet! Warte auf Spielstart...');
 
         } catch (err) {
-            console.error('[ESP] Initialisierungs-Fehler:', err);
+            console.error('[Veck] Initialisierungs-Fehler:', err);
         }
     })();
 })();
