@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Veck.io Menu & ESP (Advanced Fix)
+// @name         Veck.io Menu & ESP (Mobile Fix)
 // @namespace    http://tampermonkey.net/
-// @version      1.8
-// @description  Menü, ESP & Debug für Veck.io (CrazyGames & Veck.io)
+// @version      1.9
+// @description  Menü, ESP & On-Screen Debug für Veck.io (Mobile)
 // @author       Du
 // @match        *://*.veck.io/*
 // @match        *://*.crazygames.com/*
@@ -17,35 +17,36 @@
     if (window.veckMenuInitialized) return;
     window.veckMenuInitialized = true;
 
-    let debugMode = false;
+    let espEnabled = true;
+    let playerTransforms = []; // Hier speichern wir die gefundenen Spieler
+    let lastScanTime = 0;
 
-    // --- 1. UI MENÜ ERSTELLEN ---
+    // --- 1. UI MENÜ MIT DEBUG-BOX ---
     function createMenu() {
         const menu = document.createElement('div');
         menu.id = 'veck-menu';
         menu.style.cssText = `
-            position: fixed; top: 20px; left: 20px; width: 240px;
+            position: fixed; top: 20px; left: 20px; width: 250px;
             background: rgba(20, 20, 20, 0.95); border: 1px solid #00FF00;
             border-radius: 8px; color: white; font-family: Arial, sans-serif;
             z-index: 2147483647; box-shadow: 0 4px 10px rgba(0,0,0,0.5); user-select: none;
         `;
 
         const header = document.createElement('div');
-        header.innerText = 'Veck.io Cheats';
+        header.innerText = 'Veck.io Cheats (Mobile)';
         header.style.cssText = `
             background: #00FF00; color: black; padding: 8px;
-            font-weight: bold; text-align: center;
-            border-radius: 8px 8px 0 0; cursor: move;
+            font-weight: bold; text-align: center; border-radius: 8px 8px 0 0; cursor: move;
         `;
         menu.appendChild(header);
 
         const content = document.createElement('div');
         content.style.padding = '10px';
 
+        // ESP Toggle Button
         const espBtn = document.createElement('button');
         espBtn.innerText = 'ESP: AN';
         espBtn.style.cssText = `width: 100%; padding: 8px; margin-bottom: 8px; background: #00FF00; color: black; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;`;
-        let espEnabled = true;
         espBtn.onclick = () => {
             espEnabled = !espEnabled;
             espBtn.innerText = `ESP: ${espEnabled ? 'AN' : 'AUS'}`;
@@ -54,42 +55,53 @@
         };
         content.appendChild(espBtn);
 
-        const debugBtn = document.createElement('button');
-        debugBtn.innerText = 'Debug: AUS (F3)';
-        debugBtn.style.cssText = `width: 100%; padding: 8px; background: #555; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;`;
-        debugBtn.onclick = () => {
-            debugMode = !debugMode;
-            debugBtn.innerText = `Debug: ${debugMode ? 'AN' : 'AUS'}`;
-            debugBtn.style.background = debugMode ? '#FFAA00' : '#555';
-        };
-        content.appendChild(debugBtn);
+        // Debug Box (zeigt Text direkt im Menü an)
+        const debugBox = document.createElement('div');
+        debugBox.id = 'veck-debug-box';
+        debugBox.style.cssText = `
+            background: #000; color: #00FF00; padding: 5px; font-size: 11px;
+            max-height: 100px; overflow-y: auto; border-radius: 4px; font-family: monospace;
+        `;
+        debugBox.innerText = 'Warte auf Spiel...';
+        content.appendChild(debugBox);
 
         menu.appendChild(content);
         document.body.appendChild(menu);
 
-        // Drag & Drop
+        // Drag & Drop (Touch & Maus)
         let isDragging = false, offsetX, offsetY;
-        header.addEventListener('mousedown', (e) => { isDragging = true; offsetX = e.clientX - menu.getBoundingClientRect().left; offsetY = e.clientY - menu.getBoundingClientRect().top; });
-        document.addEventListener('mousemove', (e) => { if (isDragging) { menu.style.left = `${e.clientX - offsetX}px`; menu.style.top = `${e.clientY - offsetY}px`; } });
-        document.addEventListener('mouseup', () => { isDragging = false; });
+        const startDrag = (clientX, clientY) => {
+            isDragging = true;
+            offsetX = clientX - menu.getBoundingClientRect().left;
+            offsetY = clientY - menu.getBoundingClientRect().top;
+        };
+        const doDrag = (clientX, clientY) => {
+            if (isDragging) {
+                menu.style.left = `${clientX - offsetX}px`;
+                menu.style.top = `${clientY - offsetY}px`;
+            }
+        };
 
-        return { getEspState: () => espEnabled };
+        header.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
+        document.addEventListener('mousemove', (e) => doDrag(e.clientX, e.clientY));
+        document.addEventListener('mouseup', () => isDragging = false);
+        header.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX, e.touches[0].clientY));
+        document.addEventListener('touchmove', (e) => { if (isDragging) { doDrag(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); } }, { passive: false });
+        document.addEventListener('touchend', () => isDragging = false);
+
+        return { getEspState: () => espEnabled, debugBox: debugBox };
     }
 
-    // --- 2. DEBUG FUNKTION ---
-    function dumpObjectNames() {
-        if (!window.ctx) return console.log("[Debug] Plugin noch nicht bereit.");
-        try {
-            const Object = UnityWebModkit.Runtime.getType('UnityEngine.Object');
-            const Transform = UnityWebModkit.Runtime.getType('UnityEngine.Transform');
-            const allTransforms = Object.FindObjectsOfType(Transform);
-            console.log(`[Debug] ${allTransforms.length} Transforms gefunden:`);
-            allTransforms.forEach((t, i) => { if (i < 150 && t.gameObject) console.log(`  - ${t.gameObject.name}`); });
-            console.log("[Debug] (Nur die ersten 150 angezeigt)");
-        } catch(e) { console.error("[Debug] Fehler:", e); }
+    // Funktion zum Schreiben in die Debug-Box im Menü
+    function logToScreen(msg) {
+        const box = document.getElementById('veck-debug-box');
+        if (box) {
+            box.innerText = msg;
+        }
+        console.log(msg);
     }
 
-    // --- 3. WARTEN AUF UNITY & START ---
+    // --- 2. WARTEN AUF UNITY & START ---
     function waitForGlobal(varName, interval = 50, timeout = 15000) {
         return new Promise((resolve, reject) => {
             const start = Date.now();
@@ -106,8 +118,10 @@
         const ui = createMenu();
         try {
             await waitForGlobal('UnityWebModkit');
+            logToScreen('Modkit gefunden. Lade Spiel...');
+            
             const ctx = UnityWebModkit.Runtime.createPlugin({
-                name: 'VeckESP', version: '1.8',
+                name: 'VeckESP', version: '1.9',
                 referencedAssemblies: [
                     'ACTk.Runtime.dll', 'GameAssembly.dll', 'System.Runtime.InteropServices.dll',
                     'mscorlib.dll', 'PhotonRealtime.dll', 'PhotonUnityNetworking.dll',
@@ -124,41 +138,84 @@
             canvas.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 99999;';
             document.body.appendChild(canvas);
             const drawCtx = canvas.getContext('2d');
-            window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
-            canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+            
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
 
-            // --- 4. ESP SCHLEIFE (Mehrere Strategien) ---
-            function espLoop() {
+            // --- 3. SPIELER SUCHEN (Alle 2 Sekunden) ---
+            function scanForPlayers() {
+                const now = Date.now();
+                if (now - lastScanTime < 2000) return; // Nur alle 2 Sekunden scannen (Performance!)
+                lastScanTime = now;
+
+                try {
+                    const Object = UnityWebModkit.Runtime.getType('UnityEngine.Object');
+                    const Transform = UnityWebModkit.Runtime.getType('UnityEngine.Transform');
+                    const SkinnedMeshRenderer = UnityWebModkit.Runtime.getType('UnityEngine.SkinnedMeshRenderer');
+
+                    const allTransforms = Object.FindObjectsOfType(Transform);
+                    let found = [];
+
+                    for (let i = 0; i < allTransforms.length; i++) {
+                        const tr = allTransforms[i];
+                        if (!tr || !tr.gameObject) continue;
+                        
+                        const name = tr.gameObject.name.toLowerCase();
+                        
+                        // Filter: Ignoriere Kamera, UI, etc.
+                        if (name.includes('camera') || name.includes('ui') || name.includes('canvas') || name.includes('local')) continue;
+
+                        // Erkennung 1: Hat das Objekt einen 3D-Körper (SkinnedMeshRenderer)?
+                        let isCharacter = false;
+                        try {
+                            const renderer = tr.gameObject.GetComponent(SkinnedMeshRenderer);
+                            if (renderer !== null) isCharacter = true;
+                        } catch(e) {}
+
+                        // Erkennung 2: Name enthält typische Wörter
+                        if (name.includes('player') || name.includes('character') || name.includes('bot') || name.includes('enemy')) {
+                            isCharacter = true;
+                        }
+
+                        if (isCharacter) {
+                            found.push(tr);
+                        }
+                    }
+
+                    playerTransforms = found;
+                    
+                    if (playerTransforms.length > 0) {
+                        logToScreen(`${playerTransforms.length} Spieler gefunden!\nLetzter: ${playerTransforms[playerTransforms.length-1].gameObject.name}`);
+                    } else {
+                        logToScreen('Suche Spieler... (Keine gefunden)');
+                    }
+
+                } catch (e) {
+                    logToScreen('Fehler beim Scannen:\n' + e.message);
+                }
+            }
+
+            // --- 4. ZEICHNEN (Jeden Frame) ---
+            function drawLoop() {
                 drawCtx.clearRect(0, 0, canvas.width, canvas.height);
+                
                 if (ui.getEspState() && window.ctx) {
+                    scanForPlayers(); // Prüft selbst, ob es Zeit für einen neuen Scan ist
+
                     try {
                         const Camera = UnityWebModkit.Runtime.getType('UnityEngine.Camera');
                         const cam = Camera.main;
-                        if (cam) {
-                            const Object = UnityWebModkit.Runtime.getType('UnityEngine.Object');
-                            const Transform = UnityWebModkit.Runtime.getType('UnityEngine.Transform');
-                            const allTransforms = Object.FindObjectsOfType(Transform);
-
-                            for (let i = 0; i < allTransforms.length; i++) {
-                                const tr = allTransforms[i];
-                                if (!tr || !tr.gameObject) continue;
-                                
-                                const name = tr.gameObject.name.toLowerCase();
-                                // Strategie 1: Name enthält typische Keywords
-                                const isPlayerName = name.includes('player') || name.includes('character') || name.includes('entity') || name.includes('bot') || name.includes('avatar');
-                                
-                                // Strategie 2: Objekt hat einen Rigidbody (Spieler bewegen sich oft physikalisch)
-                                let hasRigidbody = false;
-                                try {
-                                    const Rigidbody = UnityWebModkit.Runtime.getType('UnityEngine.Rigidbody');
-                                    hasRigidbody = tr.gameObject.GetComponent(Rigidbody) !== null;
-                                } catch(e) {}
-
-                                if (isPlayerName || hasRigidbody) {
-                                    // Ignoriere den eigenen Spieler (oft "LocalPlayer" oder ähnlich)
-                                    if (name.includes('local') || name.includes('camera') || name.includes('main')) continue;
-
+                        
+                        if (cam && playerTransforms.length > 0) {
+                            for (let i = 0; i < playerTransforms.length; i++) {
+                                const tr = playerTransforms[i];
+                                if (tr && tr.gameObject) {
                                     const screenPos = cam.WorldToScreenPoint(tr.position);
+                                    
                                     if (screenPos.z > 0) {
                                         const sx = screenPos.x;
                                         const sy = canvas.height - screenPos.y;
@@ -174,14 +231,15 @@
                                 }
                             }
                         }
-                    } catch (e) { /* Fehler ignorieren */ }
+                    } catch (e) { }
                 }
-                requestAnimationFrame(espLoop);
+                requestAnimationFrame(drawLoop);
             }
-            requestAnimationFrame(espLoop);
+            
+            requestAnimationFrame(drawLoop);
 
         } catch (err) {
-            console.error('[Veck] Fehler:', err);
+            logToScreen('Init-Fehler: ' + err.message);
         }
     })();
 })();
