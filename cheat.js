@@ -1,16 +1,21 @@
 // ==UserScript==
 // @name         Veck.io Menu & ESP
 // @namespace    http://tampermonkey.net/
-// @version      1.4
-// @description  Menü und ESP Basis für Veck.io
+// @version      1.6
+// @description  Menü und ESP für Veck.io auf veck.io und crazygames.com
 // @author       Du
 // @match        *://*.veck.io/*
+// @match        *://*.crazygames.com/*
+// @match        *://*.game-files.crazygames.com/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
 
 (function() {
     'use strict';
+
+    // Verhindert, dass das Menü mehrfach erstellt wird, falls das Skript doppelt geladen wird
+    if (document.getElementById('veck-menu')) return;
 
     // --- 1. UI MENÜ ERSTELLEN ---
     function createMenu() {
@@ -26,7 +31,7 @@
             border-radius: 8px;
             color: white;
             font-family: Arial, sans-serif;
-            z-index: 10000;
+            z-index: 999999;
             box-shadow: 0 4px 10px rgba(0,0,0,0.5);
             user-select: none;
         `;
@@ -94,7 +99,7 @@
         menu.appendChild(content);
         document.body.appendChild(menu);
 
-        // Drag & Drop Funktionalität für das Menü
+        // Drag & Drop Funktionalität
         let isDragging = false;
         let offsetX, offsetY;
 
@@ -112,6 +117,26 @@
         });
 
         document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Touch-Support für Handys (damit du das Menü auch mit dem Finger verschieben kannst)
+        header.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            const touch = e.touches[0];
+            offsetX = touch.clientX - menu.getBoundingClientRect().left;
+            offsetY = touch.clientY - menu.getBoundingClientRect().top;
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+                const touch = e.touches[0];
+                menu.style.left = `${touch.clientX - offsetX}px`;
+                menu.style.top = `${touch.clientY - offsetY}px`;
+            }
+        }, { passive: false });
+
+        document.addEventListener('touchend', () => {
             isDragging = false;
         });
 
@@ -138,6 +163,7 @@
     (async () => {
         // Menü erstellen
         const ui = createMenu();
+        console.log('[Veck] Menü erstellt. Warte auf Spiel...');
 
         try {
             await waitForGlobal('UnityWebModkit');
@@ -145,7 +171,7 @@
 
             const ctx = UnityWebModkit.Runtime.createPlugin({
                 name: 'VeckESP',
-                version: '1.4',
+                version: '1.6',
                 referencedAssemblies: [
                     'ACTk.Runtime.dll', 'GameAssembly.dll', 'System.Runtime.InteropServices.dll',
                     'mscorlib.dll', 'PhotonRealtime.dll', 'PhotonUnityNetworking.dll',
@@ -160,7 +186,7 @@
 
             // Overlay-Canvas für ESP
             const canvas = document.createElement('canvas');
-            canvas.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9999;';
+            canvas.style.cssText = 'position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 99999;';
             document.body.appendChild(canvas);
             const drawCtx = canvas.getContext('2d');
 
@@ -181,34 +207,26 @@
                         const cam = Camera.main;
                         
                         if (cam) {
-                            // VERSUCH: Spieler zu finden (Wir suchen nach Objekten, die "Player" heißen)
-                            // Dies ist ein Schuss ins Blaue, da wir die genaue Klasse in Veck.io nicht kennen.
                             const GameObject = UnityWebModkit.Runtime.getType('UnityEngine.GameObject');
                             const Object = UnityWebModkit.Runtime.getType('UnityEngine.Object');
                             
-                            // Finde alle GameObjects in der Szene (WebGL kann hier etwas laggen)
-                            // Wenn das zu stark laggt, müssen wir eine andere Methode finden.
                             const allObjects = Object.FindObjectsOfType(GameObject);
                             
                             for (let i = 0; i < allObjects.length; i++) {
                                 const obj = allObjects[i];
-                                // Wir filtern nach Objekten, die "Player" im Namen haben (veck.io Charaktere)
                                 if (obj && obj.name && obj.name.toLowerCase().includes('player')) {
                                     const transform = obj.transform;
                                     if (transform) {
                                         const screenPos = cam.WorldToScreenPoint(transform.position);
                                         
-                                        // Nur zeichnen, wenn der Spieler vor der Kamera ist
                                         if (screenPos.z > 0) {
                                             const sx = screenPos.x;
                                             const sy = canvas.height - screenPos.y;
 
-                                            // Grünes Kästchen zeichnen
                                             drawCtx.strokeStyle = '#00FF00';
                                             drawCtx.lineWidth = 2;
-                                            drawCtx.strokeRect(sx - 20, sy - 40, 40, 80); // Etwas höher für Charaktere
+                                            drawCtx.strokeRect(sx - 20, sy - 40, 40, 80);
                                             
-                                            // Name zeichnen
                                             drawCtx.fillStyle = '#00FF00';
                                             drawCtx.font = '12px Arial';
                                             drawCtx.fillText(obj.name, sx - 20, sy - 45);
@@ -217,18 +235,12 @@
                                 }
                             }
                         }
-                    } catch (e) {
-                        // Fehler ignorieren, um die Konsole nicht zu spammen
-                    }
+                    } catch (e) { }
                 }
-                
-                // Waffen-Logik würde hier hin (wenn ui.getWeaponState() true ist)
-
                 requestAnimationFrame(espLoop);
             }
-
             requestAnimationFrame(espLoop);
-            console.log('[Veck] Erfolgreich gestartet! Warte auf Spielstart...');
+            console.log('[Veck] Erfolgreich gestartet!');
 
         } catch (err) {
             console.error('[Veck] Initialisierungs-Fehler:', err);
