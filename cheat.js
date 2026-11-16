@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Veck.io Menu & ESP (Debug)
+// @name         Veck.io Menu & ESP (Advanced Fix)
 // @namespace    http://tampermonkey.net/
-// @version      1.7
-// @description  Menü, ESP & Debug für Veck.io
+// @version      1.8
+// @description  Menü, ESP & Debug für Veck.io (CrazyGames & Veck.io)
 // @author       Du
 // @match        *://*.veck.io/*
 // @match        *://*.crazygames.com/*
@@ -42,13 +42,9 @@
         const content = document.createElement('div');
         content.style.padding = '10px';
 
-        // ESP Toggle
         const espBtn = document.createElement('button');
         espBtn.innerText = 'ESP: AN';
-        espBtn.style.cssText = `
-            width: 100%; padding: 8px; margin-bottom: 8px; background: #00FF00;
-            color: black; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;
-        `;
+        espBtn.style.cssText = `width: 100%; padding: 8px; margin-bottom: 8px; background: #00FF00; color: black; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;`;
         let espEnabled = true;
         espBtn.onclick = () => {
             espEnabled = !espEnabled;
@@ -58,18 +54,13 @@
         };
         content.appendChild(espBtn);
 
-        // Debug Toggle
         const debugBtn = document.createElement('button');
         debugBtn.innerText = 'Debug: AUS (F3)';
-        debugBtn.style.cssText = `
-            width: 100%; padding: 8px; background: #555; color: white;
-            border: none; border-radius: 4px; cursor: pointer; font-weight: bold;
-        `;
+        debugBtn.style.cssText = `width: 100%; padding: 8px; background: #555; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;`;
         debugBtn.onclick = () => {
             debugMode = !debugMode;
             debugBtn.innerText = `Debug: ${debugMode ? 'AN' : 'AUS'}`;
             debugBtn.style.background = debugMode ? '#FFAA00' : '#555';
-            if (debugMode) dumpObjectNames();
         };
         content.appendChild(debugBtn);
 
@@ -90,11 +81,11 @@
         if (!window.ctx) return console.log("[Debug] Plugin noch nicht bereit.");
         try {
             const Object = UnityWebModkit.Runtime.getType('UnityEngine.Object');
-            const GameObject = UnityWebModkit.Runtime.getType('UnityEngine.GameObject');
-            const all = Object.FindObjectsOfType(GameObject);
-            console.log(`[Debug] ${all.length} GameObjects gefunden:`);
-            all.forEach((obj, i) => { if (i < 100) console.log(`  - ${obj.name}`); });
-            console.log("[Debug] (Nur die ersten 100 angezeigt)");
+            const Transform = UnityWebModkit.Runtime.getType('UnityEngine.Transform');
+            const allTransforms = Object.FindObjectsOfType(Transform);
+            console.log(`[Debug] ${allTransforms.length} Transforms gefunden:`);
+            allTransforms.forEach((t, i) => { if (i < 150 && t.gameObject) console.log(`  - ${t.gameObject.name}`); });
+            console.log("[Debug] (Nur die ersten 150 angezeigt)");
         } catch(e) { console.error("[Debug] Fehler:", e); }
     }
 
@@ -116,8 +107,7 @@
         try {
             await waitForGlobal('UnityWebModkit');
             const ctx = UnityWebModkit.Runtime.createPlugin({
-                name: 'VeckESP',
-                version: '1.7',
+                name: 'VeckESP', version: '1.8',
                 referencedAssemblies: [
                     'ACTk.Runtime.dll', 'GameAssembly.dll', 'System.Runtime.InteropServices.dll',
                     'mscorlib.dll', 'PhotonRealtime.dll', 'PhotonUnityNetworking.dll',
@@ -137,7 +127,7 @@
             window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; });
             canvas.width = window.innerWidth; canvas.height = window.innerHeight;
 
-            // --- 4. ESP SCHLEIFE (Verbessert) ---
+            // --- 4. ESP SCHLEIFE (Mehrere Strategien) ---
             function espLoop() {
                 drawCtx.clearRect(0, 0, canvas.width, canvas.height);
                 if (ui.getEspState() && window.ctx) {
@@ -146,32 +136,40 @@
                         const cam = Camera.main;
                         if (cam) {
                             const Object = UnityWebModkit.Runtime.getType('UnityEngine.Object');
-                            const GameObject = UnityWebModkit.Runtime.getType('UnityEngine.GameObject');
-                            const all = Object.FindObjectsOfType(GameObject);
+                            const Transform = UnityWebModkit.Runtime.getType('UnityEngine.Transform');
+                            const allTransforms = Object.FindObjectsOfType(Transform);
 
-                            // Liste möglicher Namen für Spieler-Objekte
-                            const keywords = ['player', 'character', 'entity', 'bot', 'avatar', 'enemy', 'target'];
-
-                            for (let i = 0; i < all.length; i++) {
-                                const obj = all[i];
-                                if (!obj || !obj.name) continue;
-                                const lowerName = obj.name.toLowerCase();
+                            for (let i = 0; i < allTransforms.length; i++) {
+                                const tr = allTransforms[i];
+                                if (!tr || !tr.gameObject) continue;
                                 
-                                // Prüfen, ob der Name ein Keyword enthält (außer dem eigenen Spieler)
-                                if (keywords.some(k => lowerName.includes(k)) && lowerName !== 'localplayer') {
-                                    const transform = obj.transform;
-                                    if (transform) {
-                                        const screenPos = cam.WorldToScreenPoint(transform.position);
-                                        if (screenPos.z > 0) {
-                                            const sx = screenPos.x;
-                                            const sy = canvas.height - screenPos.y;
-                                            drawCtx.strokeStyle = '#00FF00';
-                                            drawCtx.lineWidth = 2;
-                                            drawCtx.strokeRect(sx - 20, sy - 40, 40, 80);
-                                            drawCtx.fillStyle = '#00FF00';
-                                            drawCtx.font = '12px Arial';
-                                            drawCtx.fillText(obj.name, sx - 20, sy - 45);
-                                        }
+                                const name = tr.gameObject.name.toLowerCase();
+                                // Strategie 1: Name enthält typische Keywords
+                                const isPlayerName = name.includes('player') || name.includes('character') || name.includes('entity') || name.includes('bot') || name.includes('avatar');
+                                
+                                // Strategie 2: Objekt hat einen Rigidbody (Spieler bewegen sich oft physikalisch)
+                                let hasRigidbody = false;
+                                try {
+                                    const Rigidbody = UnityWebModkit.Runtime.getType('UnityEngine.Rigidbody');
+                                    hasRigidbody = tr.gameObject.GetComponent(Rigidbody) !== null;
+                                } catch(e) {}
+
+                                if (isPlayerName || hasRigidbody) {
+                                    // Ignoriere den eigenen Spieler (oft "LocalPlayer" oder ähnlich)
+                                    if (name.includes('local') || name.includes('camera') || name.includes('main')) continue;
+
+                                    const screenPos = cam.WorldToScreenPoint(tr.position);
+                                    if (screenPos.z > 0) {
+                                        const sx = screenPos.x;
+                                        const sy = canvas.height - screenPos.y;
+                                        
+                                        drawCtx.strokeStyle = '#00FF00';
+                                        drawCtx.lineWidth = 2;
+                                        drawCtx.strokeRect(sx - 20, sy - 40, 40, 80);
+                                        
+                                        drawCtx.fillStyle = '#00FF00';
+                                        drawCtx.font = '12px Arial';
+                                        drawCtx.fillText(tr.gameObject.name, sx - 20, sy - 45);
                                     }
                                 }
                             }
