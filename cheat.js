@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cookie Clicker Ultimate Cheat Menu
 // @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  Mod Menü für Cookie Clicker (Auto-Clicker, Cookies, Golden Cookies, Dev-Tools)
+// @version      2.0
+// @description  Mod Menü mit Drag & Drop, Auto-Clicker, Cookies & Dev-Tools
 // @author       Deine KI
 // @match        https://orteil.dashnet.org/cookieclicker/*
 // @match        http://orteil.dashnet.org/cookieclicker/*
@@ -12,7 +12,6 @@
 (function () {
     'use strict';
 
-    // Warten, bis das Spiel komplett geladen ist
     const initInterval = setInterval(() => {
         if (typeof Game !== 'undefined' && Game.ready) {
             clearInterval(initInterval);
@@ -25,15 +24,18 @@
         let autoGoldenInterval = null;
         let isMinimized = false;
 
-        // Styles für das Menü
+        // Gespeicherte Position laden oder Default
+        const savedLeft = localStorage.getItem('cc_menu_left') || '20px';
+        const savedTop = localStorage.getItem('cc_menu_top') || '60px';
+
         const style = document.createElement('style');
         style.textContent = `
             #cc-cheat-menu {
                 position: fixed;
-                top: 60px;
-                left: 20px;
+                top: ${savedTop};
+                left: ${savedLeft};
                 width: 260px;
-                background: rgba(20, 20, 25, 0.95);
+                background: rgba(20, 20, 25, 0.96);
                 border: 2px solid #d4af37;
                 border-radius: 10px;
                 color: #fff;
@@ -49,19 +51,27 @@
                 color: #111;
                 font-weight: bold;
                 padding: 8px 12px;
-                cursor: move;
+                cursor: grab;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
             }
-            #cc-cheat-toggle {
+            #cc-cheat-header:active {
+                cursor: grabbing;
+            }
+            .cc-header-btns {
+                display: flex;
+                gap: 4px;
+            }
+            .cc-top-btn {
                 background: #111;
                 color: #d4af37;
                 border: none;
                 border-radius: 4px;
-                padding: 2px 7px;
+                padding: 2px 6px;
                 cursor: pointer;
                 font-weight: bold;
+                font-size: 11px;
             }
             #cc-cheat-body {
                 padding: 12px;
@@ -112,13 +122,14 @@
         `;
         document.head.appendChild(style);
 
-        // HTML-Struktur des Menüs
         const menu = document.createElement('div');
         menu.id = 'cc-cheat-menu';
         menu.innerHTML = `
             <div id="cc-cheat-header">
                 <span>🍪 Cookie Mod Menü</span>
-                <button id="cc-cheat-toggle">−</button>
+                <div class="cc-header-btns">
+                    <button id="cc-cheat-toggle" class="cc-top-btn">−</button>
+                </div>
             </div>
             <div id="cc-cheat-body">
                 <div class="cc-section-title">Automatisierung</div>
@@ -127,7 +138,7 @@
 
                 <div class="cc-section-title">Cookies & Lump-Cheats</div>
                 <div class="cc-row">
-                    <input type="number" id="input-cookies" class="cc-input" placeholder="Menge (z.B. 1000000)">
+                    <input type="number" id="input-cookies" class="cc-input" placeholder="Menge...">
                     <button id="btn-add-cookies" class="cc-btn" style="width: auto;">+Add</button>
                 </div>
                 <button id="btn-x10-cookies" class="cc-btn">📈 Cookies x10</button>
@@ -143,7 +154,7 @@
         `;
         document.body.appendChild(menu);
 
-        // Menü einklappbar machen
+        // Einklappen-Logik
         const toggleBtn = document.getElementById('cc-cheat-toggle');
         const bodyEl = document.getElementById('cc-cheat-body');
         toggleBtn.addEventListener('click', () => {
@@ -152,29 +163,38 @@
             toggleBtn.textContent = isMinimized ? '+' : '−';
         });
 
-        // Menü per Drag & Drop verschiebbar machen
+        // Perfekte Drag & Drop Logik (überall greifbar auf dem Header)
         const header = document.getElementById('cc-cheat-header');
-        let isDragging = false, offsetX = 0, offsetY = 0;
+        let isDragging = false, startX = 0, startY = 0;
 
         header.addEventListener('mousedown', (e) => {
-            if (e.target === toggleBtn) return;
+            if (e.target.tagName === 'BUTTON') return;
             isDragging = true;
-            offsetX = e.clientX - menu.offsetLeft;
-            offsetY = e.clientY - menu.offsetTop;
+            startX = e.clientX - menu.offsetLeft;
+            startY = e.clientY - menu.offsetTop;
+            e.preventDefault();
         });
 
         document.addEventListener('mousemove', (e) => {
             if (!isDragging) return;
-            menu.style.left = (e.clientX - offsetX) + 'px';
-            menu.style.top = (e.clientY - offsetY) + 'px';
+            const newX = e.clientX - startX;
+            const newY = e.clientY - startY;
+            
+            menu.style.left = newX + 'px';
+            menu.style.top = newY + 'px';
         });
 
         document.addEventListener('mouseup', () => {
-            isDragging = false;
+            if (isDragging) {
+                isDragging = false;
+                // Position speichern
+                localStorage.setItem('cc_menu_left', menu.style.left);
+                localStorage.setItem('cc_menu_top', menu.style.top);
+            }
         });
 
-        // 1. Auto-Clicker (100 Klicks pro Sekunde)
-        const btnAutoClick = document.getElementById('btn-autoclick');
+        // Event Listeners für die Cheats
+        let btnAutoClick = document.getElementById('btn-autoclick');
         btnAutoClick.addEventListener('click', () => {
             if (autoClickInterval) {
                 clearInterval(autoClickInterval);
@@ -182,77 +202,47 @@
                 btnAutoClick.textContent = '🖱️ Auto-Clicker: AUS';
                 btnAutoClick.classList.remove('active');
             } else {
-                autoClickInterval = setInterval(() => {
-                    Game.ClickCookie();
-                }, 10);
+                autoClickInterval = setInterval(() => Game.ClickCookie(), 10);
                 btnAutoClick.textContent = '🖱️ Auto-Clicker: AN (100/s)';
                 btnAutoClick.classList.add('active');
             }
         });
 
-        // 2. Auto-Golden Cookies (klickt automatisch alle Golden Cookies & Rentier-Popups an)
-        const btnAutoGolden = document.getElementById('btn-autogolden');
+        let btnAutoGolden = document.getElementById('btn-autogolden');
         btnAutoGolden.addEventListener('click', () => {
             if (autoGoldenInterval) {
                 clearInterval(autoGoldenInterval);
                 autoGoldenInterval = null;
-                btnAutoGolden.textContent = '✨ Auto-Golden Cookies: AUS';
+                        btnAutoGolden.textContent = '✨ Auto-Golden Cookies: AUS';
                 btnAutoGolden.classList.remove('active');
             } else {
                 autoGoldenInterval = setInterval(() => {
-                    Game.shimmers.forEach(shimmer => shimmer.pop());
+                    Game.shimmers.forEach(s => s.pop());
                 }, 200);
                 btnAutoGolden.textContent = '✨ Auto-Golden Cookies: AN';
                 btnAutoGolden.classList.add('active');
             }
         });
 
-        // 3. Bestimmte Menge Cookies hinzufügen
         document.getElementById('btn-add-cookies').addEventListener('click', () => {
             const val = parseFloat(document.getElementById('input-cookies').value);
-            if (!isNaN(val) && val > 0) {
-                Game.Earn(val);
-            }
+            if (!isNaN(val) && val > 0) Game.Earn(val);
         });
 
-        // 4. Cookies mal 10 nehmen
         document.getElementById('btn-x10-cookies').addEventListener('click', () => {
-            if (Game.cookies > 0) {
-                Game.Earn(Game.cookies * 9);
-            } else {
-                Game.Earn(1000);
-            }
+            if (Game.cookies > 0) Game.Earn(Game.cookies * 9);
+            else Game.Earn(1000);
         });
 
-        // 5. Unendlich Cookies
         document.getElementById('btn-inf-cookies').addEventListener('click', () => {
             Game.cookies = Infinity;
             Game.cookiesEarned = Infinity;
         });
 
-        // 6. +100 Sugar Lumps
-        document.getElementById('btn-add-lumps').addEventListener('click', () => {
-            Game.gainLumps(100);
-        });
-
-        // 7. Golden Cookie sofort spawnen
-        document.getElementById('btn-spawn-golden').addEventListener('click', () => {
-            new Game.shimmer('golden');
-        });
-
-        // 8. Alle Upgrades freischalten
-        document.getElementById('btn-unlock-all').addEventListener('click', () => {
-            Game.SetAllUpgrades(1);
-        });
-
-        // 9. Ruin The Fun (Alles freischalten + riesiger Cookie-Boost)
-        document.getElementById('btn-ruin-fun').addEventListener('click', () => {
-            Game.RuinTheFun();
-        });
-
-        // 10. Offizielles Dev-Menü aktivieren
-        document.getElementById('btn-dev-menu').addEventListener('click', () => {
-            Game.OpenSesame();
-        });
+        document.getElementById('btn-add-lumps').addEventListener('click', () => Game.gainLumps(100));
+        document.getElementById('btn-spawn-golden').addEventListener('click', () => new Game.shimmer('golden'));
+        document.getElementById('btn-unlock-all').addEventListener('click', () => Game.SetAllUpgrades(1));
+        document.getElementById('btn-ruin-fun').addEventListener('click', () => Game.RuinTheFun());
+        document.getElementById('btn-dev-menu').addEventListener('click', () => Game.OpenSesame());
     }
 })();
